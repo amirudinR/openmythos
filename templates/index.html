@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenMythos | Neural Orchestrator</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <canvas id="canvas-bg"></canvas>
+    
+    <div class="container">
+        <header>
+            <div class="logo">
+                <h1>OPENMYTHOS <span style="font-weight: 200; opacity: 0.5;">RECURRENT</span></h1>
+            </div>
+            <div class="switch-group">
+                <span>SFX</span>
+                <label class="switch">
+                    <input type="checkbox" id="sfxToggle" checked>
+                    <span class="slider"></span>
+                </label>
+                <button style="background: transparent; border: 1px solid var(--border); color: var(--text); padding: 5px 15px; border-radius: 20px; cursor: pointer; font-size: 0.7rem;" onclick="window.print()">EXPORT DATA</button>
+            </div>
+        </header>
+
+        <div class="main-layout">
+            <!-- Sidebar: Controls -->
+            <aside>
+                <div class="card">
+                    <textarea id="inputText" placeholder="Enter neural sequence..."></textarea>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span class="stat-label">Loop Depth</span>
+                            <span id="loopDisplay" style="color: var(--accent); font-weight: bold;">16</span>
+                        </div>
+                        <input type="range" id="loopRange" min="1" max="64" value="16" style="width: 100%;">
+                    </div>
+
+                    <button class="btn-main" id="execBtn" onclick="runModel()">Execute Neural Path</button>
+
+                    <div class="expert-grid" id="expertMap">
+                        <!-- Experts -->
+                    </div>
+                </div>
+
+                <div class="console" id="logConsole">
+                    <div class="log-line">> System Ready. Waiting for input...</div>
+                </div>
+            </aside>
+
+            <!-- Main Content: Viz -->
+            <main>
+                <div class="viz-row">
+                    <div class="card">
+                        <span class="stat-label">Spectral Radius</span>
+                        <span class="stat-val" id="srVal">0.0000</span>
+                        <div id="stabilityTag" style="font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; display: inline-block; background: #00ffaa22; color: #00ffaa;">STABLE</div>
+                    </div>
+                    <div class="card">
+                        <span class="stat-label">Memory Trace</span>
+                        <span class="stat-val" id="traceVal" style="font-size: 1.2rem; font-family: monospace;">---</span>
+                        <span class="stat-label">Active State</span>
+                    </div>
+                </div>
+
+                <div class="card" style="height: 250px;">
+                    <span class="stat-label">Recurrence Activation Stream</span>
+                    <canvas id="mainChart"></canvas>
+                </div>
+
+                <div class="card" style="margin-top: 20px; min-height: 150px;">
+                    <span class="stat-label">Neural Output</span>
+                    <div id="outputText" style="margin-top: 15px; font-size: 1.1rem; line-height: 1.5;" class="typing"></div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. Background Particles ---
+        const canvas = document.getElementById('canvas-bg');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+        function initBg() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            for(let i=0; i<80; i++) {
+                particles.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    vx: (Math.random() - 0.5) * 0.5,
+                    vy: (Math.random() - 0.5) * 0.5
+                });
+            }
+        }
+        function drawBg() {
+            ctx.clearRect(0,0,canvas.width, canvas.height);
+            ctx.fillStyle = 'rgba(0, 242, 255, 0.1)';
+            ctx.strokeStyle = 'rgba(0, 242, 255, 0.05)';
+            particles.forEach((p, i) => {
+                p.x += p.vx; p.y += p.vy;
+                if(p.x < 0 || p.x > canvas.width) p.vx *= -1;
+                if(p.y < 0 || p.y > canvas.height) p.vy *= -1;
+                ctx.beginPath(); ctx.arc(p.x, p.y, 1, 0, Math.PI*2); ctx.fill();
+                for(let j=i+1; j<particles.length; j++) {
+                    const p2 = particles[j];
+                    const dist = Math.hypot(p.x-p2.x, p.y-p2.y);
+                    if(dist < 150) {
+                        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+                    }
+                }
+            });
+            requestAnimationFrame(drawBg);
+        }
+        initBg(); drawBg();
+
+        // --- 2. Main Logic ---
+        const loopRange = document.getElementById('loopRange');
+        const loopDisplay = document.getElementById('loopDisplay');
+        const expertMap = document.getElementById('expertMap');
+        let mainChart;
+
+        for(let i=0; i<8; i++) {
+            const d = document.createElement('div');
+            d.className = 'exp-node'; d.id = 'exp-'+i; d.innerText = 'EXP ' + (i+1);
+            expertMap.appendChild(d);
+        }
+
+        loopRange.oninput = () => { loopDisplay.innerText = loopRange.value; };
+
+        function playSound(type) {
+            if(!document.getElementById('sfxToggle').checked) return;
+            const audio = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audio.createOscillator();
+            const gain = audio.createGain();
+            osc.connect(gain); gain.connect(audio.destination);
+            osc.frequency.value = type === 'blip' ? 800 : 400;
+            gain.gain.setValueAtTime(0.1, audio.currentTime);
+            osc.start();
+            osc.stop(audio.currentTime + 0.05);
+        }
+
+        async function runModel() {
+            const btn = document.getElementById('execBtn');
+            const output = document.getElementById('outputText');
+            const console = document.getElementById('logConsole');
+            
+            btn.disabled = true; btn.innerText = "THINKING...";
+            output.innerText = "";
+            playSound('blip');
+
+            const resp = await fetch('/process', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({text: document.getElementById('inputText').value, loops: loopRange.value})
+            });
+            const data = await resp.json();
+
+            // Render Logs
+            data.logs.forEach((l, idx) => {
+                setTimeout(() => {
+                    const div = document.createElement('div');
+                    div.className = 'log-line'; div.innerText = '> ' + l;
+                    console.appendChild(div);
+                    console.scrollTop = console.scrollHeight;
+                }, idx * 200);
+            });
+
+            // Update Stats
+            document.getElementById('srVal').innerText = data.spectral_radius;
+            document.getElementById('traceVal').innerText = data.memory_trace;
+            
+            // Update Experts
+            document.querySelectorAll('.exp-node').forEach(n => n.classList.remove('active'));
+            data.experts.forEach((v, i) => { if(v > 50) document.getElementById('exp-'+i).classList.add('active'); });
+
+            // Chart
+            const ctxChart = document.getElementById('mainChart').getContext('2d');
+            if(mainChart) mainChart.destroy();
+            mainChart = new Chart(ctxChart, {
+                type: 'line',
+                data: {
+                    labels: data.brain_stream.map((_,i)=>i+1),
+                    datasets: [{
+                        data: data.brain_stream, borderColor: '#00f2ff', tension: 0.4, fill: true,
+                        backgroundColor: 'rgba(0, 242, 255, 0.05)', pointRadius: 0
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: {legend: {display:false}},
+                    scales: { y: {display: false}, x: {grid: {display:false, color: '#30363d'}} }
+                }
+            });
+
+            // Typewriter
+            let charIdx = 0;
+            const type = () => {
+                if(charIdx < data.message.length) {
+                    output.innerText += data.message.charAt(charIdx);
+                    charIdx++;
+                    if(charIdx % 3 === 0) playSound('type');
+                    setTimeout(type, 20);
+                } else {
+                    btn.disabled = false; btn.innerText = "Execute Neural Path";
+                }
+            };
+            type();
+        }
+    </script>
+</body>
+</html>
